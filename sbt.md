@@ -325,6 +325,10 @@ lazy val root = (project in file("."))
 
 각 서브프로젝트는 **key-value 쌍**으로 설정된다.
 
+lazy val root : root라는 느리게 평가되는 값을 선언하며 이 값이 서브프로젝트를 나타낸다.
+
+(project in file(".")) : 현재 디렉토리에 위치한 서브프로젝트를 초기화한다.
+
 예를 들어 name이라는 키는 문자열 값을 가지며, 이 값이 서브프로젝트의 이름이 된다.
 
 
@@ -340,6 +344,14 @@ organization  :=         "com.example"
 ^^^^^^^^^^^^  ^^^^^^^^   ^^^^^^^^^^^^^
    키          연산자         값(body)
 ```
+좌변에는 name, version, scalaVersion 같은 key가 있다.
+
+키는 SettingKey[T], TaskKey[T] 또는 InputKey[T] 의 인스턴스이며 T는 기대되는 값의 유형이다.
+
+ex) name키는 SettingKey[String] 으로 타입이 지정되어 있기 떄문에 name에 대한 := 연산자는 String으로 구체화된다.
+
+build.sbt 파일은 val, lazy val, def 등이 쓰일 수 있지만 상위 수준의 객체 및 클래스는 허용되지 않으며 이런 내용들은 project/ 디렉토리에 있는 Scala 소스 파일로 이동해야한다.
+
 += 연산자를 통해서 value를 추가할 수도 있다.
 
 
@@ -355,6 +367,30 @@ scalaVersion := "3.6.4"
 libraryDependencies += toolkit
 libraryDependencies += (toolkitTest % Test)
 ```
+
+## Keys
+키에는 3가지 유형이 있다.
+- SettingKey[T] : 값이 한 번만 평가되는 키이다. 즉, 서브프로젝트를 로드할 때 값이 계산되고, 이후에 유지된다.
+- TaskKey[T] : 값에 대한 키로, 이 키는 호출될 때마다 (Scala 함수처럼) 평가된다. 이 과정에서 부작용이 발생할 수 있다.
+- InputKey[T] : 명령줄 인수를 입력으로 받는 작업을 위한 키이다. 이에 대한 상세 내용은 Input Tasks를 참조하면 된다.
+
+### 내장 키 
+내장 키는 Keys 라는 객체의 필드로 정의된다. build.sbt 파일은 암묵적으로 import sbt.Keys._ 를 포함하고 있으므로 sbt.Keys.name을 name으로 간단히 참조할 수 있다.
+
+### Custom Keys
+커스텀 키는 각각의 생성 메서드인 settingKey, taskKey, inputKey를 사용하여 정의할 수 있다.
+
+```
+lazy val hello = taskKey[Unit]("An example task")
+```
+
+## Bare .sbt build definition
+설정은 .settings(...) 호출 대신 build.sbt 파일에 직접 작성할 수 있다. 
+```
+ThisBuild / version := "1.0
+ThisBuild / scalaVersion := "2.12.18"
+```
+
 ### **libraryDependencies**  Key
 
 외부 라이브러리를 추가하려면, 다음과 같이 libraryDependencies 키를 사용해서 선언한다.
@@ -365,7 +401,149 @@ libraryDependencies += (toolkitTest % Test)
 libraryDependencies += groupID % artifactID % revision
 ```
 
-### **Dependency를 한 곳에서 관리하기**
+## Multiple subprojects
+subproject들이 서로 의존하고 함께 수정되는 경향이 있을 때 이것들을 하나의 build에 유지하는 것이 유용하다.
+
+각 subproject들은 자체 소스 디렉토리를 갖고 있으며 package 명령을 실행할 때 자체 JAR 파일을 생성한다.
+
+```
+lazy val util = (project in file("util"))
+
+lazy val core = (project in file("core"))
+```
+
+### 빌드 전역 설정
+여러 subproject에 걸쳐 공통 설정을 추출하기 위해 ThisBuild에 스코프를 설정하여 정의할 수 있다.
+
+ThisBuild는 빌드의 기본값을 정의하는 데 사용할 수 있는 특별한 subproject 이름이다.
+
+하나 이상의 subproject를 정의하고 scalaVersion 키를 정의하지 않으면 sbt는 ThisBuild / scalaVersion을 찾게된다.
+
+```
+ThisBuild / organization := "com.example"
+ThisBuild / version      := "0.1.0-SNAPSHOT"
+ThisBuild / scalaVersion := "2.12.18"
+
+lazy val core = (project in file("core"))
+  .settings(
+    // 기타 설정
+  )
+
+lazy val util = (project in file("util"))
+  .settings(
+    // 기타 설정
+  )
+```
+이런식으로 설정하게 되면 버전을 한 곳에서 변경할 수 이쏙 빌드를 다시 로드할 때 subproject 전반에 걸쳐 반영된다.
+
+### 공통 설정
+commonSettings seq를 통해 프로젝트에서 공통으로 사용하는 설정을 추출할 수 있다.
+```
+lazy val commonSettings = Seq(
+  target := { baseDirectory.value / "target2" }
+)
+
+lazy val core = (project in file("core"))
+  .settings(
+    commonSettings,
+    // 기타 설정
+  )
+
+lazy val util = (project in file("util"))
+  .settings(
+    commonSettings,
+    // 기타 설정
+  )
+```
+위 코드에서 commonSettings는 core와 util 모두에 적용된다. 이를 통해 중복 코드를 줄이고 일관된 설정을 유지할 수 있다.
+
+## Scope
+특정 설정이나 작업이 적용되는 범위를 의미한다. 예를 들어 compile이나 test 같은 키가 있다.
+- key : 설정이나 작업을 정의할 때 사용되는 식별자
+- build scope : sbt는 다음과 같은 4가지 주요 scope를 지원한다.
+  - Global Scope : 모든 프로젝트와 설정에 적용된다. 
+  - ThisBuild Scope : 현재 빌드 파일에만 적용된다. 일반적으로 멀트프로젝트 설정에서 공통적으로 사용된다.
+  - Project Scope : 특정 프로젝트에만 적용된다. 여러 프로젝트가 있을 때 개별 프로젝트의 설정을 다를 수 있게 해준다.
+  - Configuration Scope : 특정 구성에 해당하는 설정이다. 예를 들어 compile, test, runtime 등 각각의 환경을 위한 설정을 정의할 수 있다.
+- 식별 표현 : sbt 에서는 / 연산자를 사용하여 scope를 식별한다.
+```
+lazy val myProject = (project in file(".")).
+  settings(
+    name := "My Project",
+    Compile / scalaVersion := "2.13.6",   // Compile 스코프
+    Test / scalaVersion := "2.13.5"        // Test 스코프
+  )
+```
+## Task
+sbt에서 Task는 특정 작업을 수행하기 위해 정의된 실행 가능한 단위이며 작업의 종류나 실행 결과에 따라 다양한 기능을 수행한다.
+
+기본적으로 Task는 비동기적으로 실행되며 필요할 때마다 호출되며 재계산된다.
+
+### 주요 개념
+- return 값 : Task는 실행 후 결과를 반환한다. 반환타입은 정의 때 명시하며 다양한 데이터 타입이 될 수 있다.
+- Lazy Evaluation : sbt의 task는 호출될 때까지 실행되지 않으며, 필요한 경우에 재계산된다. 이 특성 덕분에 불필요한 작업을 피할 수 있다.
+- TaskKey : Task를 정의할 때 사용되는 객체로, Type과 Description을 설정하여 Task의 이름과 반환 타입을 지정한다.
+  ```
+  lazy val myTask = taskKey[Unit]("내 사용자 정의 작업")
+  ```
+- 의존성 : Task는 다른 Task 및 설정에 의존할 수 있다.
+```
+lazy val printHello = taskKey[Unit]("Hello를 출력하는 작업")
+
+printHello := {
+  val log = streams.value.log
+  log.info("Hello, SBT!")
+}
+```
+
+## Dependency
+빌드 내의 프로젝트들은 완전히 독립적일 수 있지만 일반적으로는 dependency를 통해 서로 연결된다. dependency는 크게 2 종류로 나뉜다.
+
+### Aggregation
+```
+lazy val root = (project in file("."))
+  .aggregate(util, core)
+
+lazy val util = (project in file("util"))
+
+lazy val core = (project in file("core"))
+```
+.aggregate를 선언하면 root 프로젝트에 어떤 작업을 실행하면 util,core 모두에게 동일한 작업이 수행된다.
+
+특정한 작업을 피하고 싶다면 다음과 같이 작성할 수 있다.
+```
+lazy val root = (project in file("."))
+  .aggregate(util, core)
+  .settings(
+    update / aggregate := false
+  )
+```
+### ClassPath
+한 프로젝트가 다른 프로젝트의 코드에 의존하면 dependsOn 메서드 호출을 통해 구현이 가능하다.
+```
+lazy val core = project.dependsOn(util)
+```
+
+### Per-Configuration classpath dependencies
+core dependsOn(util) 은 core의 컴파일 구성이 util 의 컴파일 구성에 의존함을 의미한다.
+
+좀 더 명시적으로 쓰면 dependsOn(util % "compile->compile") 로 쓸 수 있다.
+
+여기서 -> 는 의존한다는 의미이다.  
+
+->config 를 생략할 경우 기본적으로 ->compile로 간주된다.
+
+유용한 선언중 하나로 "test->test" 가 있는데 이는 테스트가 테스트를 의존함을 의미한다.
+
+이 설정을 사용하면 util/src/test/scala에 테스트용 코드를 배치하고 이를 core/src/test/scala에서 사용할 수 있다.
+
+여러 개의 구성에 대해 의존성을 정의하고 싶다면 세미클론으로 구분하여 선언할 수 있다.
+
+```
+dependsOn(util % "test->test;compile->compile")
+```
+
+## **Dependency를 한 곳에서 관리하기**
 .scala 파일은 project/ 디렉토리 아래에 위치하면 **빌드 정의의 일부**가 된다.
 
 이 점을 활용해서, dependency들을 한 곳에 모아 관리할 수 있다.
