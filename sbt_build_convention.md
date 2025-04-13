@@ -1,4 +1,3 @@
-
 # 🛠️ build.sbt 작성 컨벤션 (Detailed Convention Guide)
 
 sbt 프로젝트의 일관성과 유지보수성을 높이기 위해 `build.sbt` 작성 시 아래와 같은 컨벤션을 따르는 것을 권장한다.
@@ -161,3 +160,138 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 - 멀티 프로젝트에서는 `ThisBuild`로 공통 설정, `lazy val`로 서브 프로젝트 관리
 
 ---
+
+## ✅ 11. 고급 실무 적용 팁 및 베스트 프랙티스
+
+### 🔹 프로젝트 구성 확장 전략
+
+- **멀티 프로젝트**를 구성할 땐 `lazy val`과 디렉토리 구조를 잘 나누고, 공통 설정을 `commonSettings`로 분리합니다.
+- 예를 들어 다음처럼 구성합니다:
+
+```scala
+ThisBuild / organization := "com.example"
+ThisBuild / version := "1.0.0"
+ThisBuild / scalaVersion := "3.3.5"
+
+lazy val commonSettings = Seq(
+  scalacOptions ++= Seq("-deprecation", "-feature"),
+  testFrameworks += new TestFramework("org.scalatest.tools.Framework")
+)
+
+lazy val core = (project in file("core"))
+  .settings(commonSettings: _*)
+
+lazy val api = (project in file("api"))
+  .settings(commonSettings: _*)
+  .dependsOn(core)
+
+lazy val app = (project in file("app"))
+  .settings(commonSettings: _*)
+  .dependsOn(core, api)
+```
+
+---
+
+### 🔹 스코프 활용 팁
+
+- 설정을 특정 스코프에만 적용하는 방식이 중요합니다:
+
+```scala
+Compile / console / scalacOptions --= Seq("-Xfatal-warnings")
+Test / fork := true
+```
+
+---
+
+### 🔹 sbt 명령 커스터마이징
+
+- 커맨드 스크립트 정의:
+
+```scala
+commands += Command.command("greet") { state =>
+  println("👋 Hello from custom sbt command!")
+  state
+}
+```
+
+---
+
+### 🔹 CI/CD 환경 최적화
+
+- `.github/workflows/ci.yml` 같은 CI 설정에서 다음 경로를 캐시하여 빌드 속도 향상:
+
+```yaml
+- ~/.ivy2/cache
+- ~/.sbt
+- ~/.cache/coursier
+```
+
+- `sbt clean test` 또는 `sbt +test`로 cross build도 병행 가능
+
+---
+
+### 🔹 의존성 충돌 방지 및 exclude
+
+```scala
+libraryDependencies += "org.apache.spark" %% "spark-core" % "3.5.0"
+  .exclude("org.slf4j", "slf4j-log4j12")
+```
+
+- `dependencyTree` 명령어로 충돌 확인:
+```
+> sbt dependencyTree
+```
+
+---
+
+### 🔹 태스크 조합 및 후킹
+
+```scala
+lazy val prepare = taskKey[Unit]("Prepare resources")
+
+prepare := {
+  val log = streams.value.log
+  log.info("Preparing things before compilation!")
+}
+
+compile := (compile dependsOn prepare).value
+```
+
+---
+
+### 🔹 자주 쓰는 sbt 플러그인 요약
+
+| 플러그인             | 목적                            |
+|----------------------|---------------------------------|
+| sbt-assembly          | fat JAR 생성                    |
+| sbt-native-packager   | Docker/패키징 지원              |
+| sbt-revolver          | 빠른 서버 재시작 (`reStart`)     |
+| sbt-scalafmt          | 포맷터 적용 (`scalafmtAll`)      |
+| sbt-dependency-check  | 보안 취약성 체크                |
+
+---
+
+### 🔹 이름 짓기 네이밍 컨벤션
+
+- 프로젝트 명: kebab-case (e.g. `my-app`)
+- 서브 프로젝트 val: `lazy val core = ...`
+- 태스크 키: 동사 기반 (`printHello`, `generateDocs`)
+- 설정 변수: 명확한 prefix (`akkaVersion`, `playJsonV`)
+
+---
+
+### 🔹 .gitignore 추천 설정
+
+```
+target/
+.idea/
+.bsp/
+.metals/
+project/target/
+project/project/
+.history
+```
+
+---
+
+이러한 내용을 통해 sbt 설정의 일관성과 재사용성을 확보하고, 협업 및 유지보수 효율을 높일 수 있습니다.
