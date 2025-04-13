@@ -676,3 +676,73 @@ sbt:bar> Compile/dependencyTree
     sbt가 생성하는 결과물들이 저장되는 디렉토리다.
     
     컴파일된 클래스, JAR 파일, 캐시 파일, 문서 등이 여기에 저장된다.
+
+---
+
+### 📚 더 알아두면 좋은 심화 기능 정리
+
+#### 1. 프로젝트 간 코드 공유
+여러 서브 프로젝트에서 공통 유틸리티를 공유하려면 `dependsOn` 또는 별도의 공통 모듈로 나누는 방식이 좋습니다.
+
+```scala
+lazy val common = (project in file("common"))
+
+lazy val serviceA = (project in file("serviceA"))
+  .dependsOn(common)
+
+lazy val serviceB = (project in file("serviceB"))
+  .dependsOn(common)
+```
+
+#### 2. 테스트 프레임워크 설정
+sbt는 여러 테스트 프레임워크를 지원하며, 명시적으로 지정하거나 병렬 실행 옵션 등을 조정할 수 있습니다.
+
+```scala
+testFrameworks += new TestFramework("munit.Framework")
+
+Test / parallelExecution := false
+```
+
+#### 3. 빌드 캐시 최적화
+`sbt`는 `.ivy2`, `.coursier`, `target` 등에 캐시를 남깁니다. Docker나 CI 환경에서는 다음과 같은 디렉토리를 캐시하면 유리합니다:
+
+- `~/.ivy2/cache`
+- `~/.sbt`
+- `~/.cache/coursier`
+
+#### 4. 태스크 조합 및 흐름 제어
+커스텀 태스크 간의 의존성을 명확하게 설정할 수 있습니다:
+
+```scala
+lazy val compileAndPrint = taskKey[Unit]("Compile 후 로그 출력")
+
+compileAndPrint := {
+  val _ = (Compile / compile).value
+  streams.value.log.info("컴파일 완료!")
+}
+```
+
+#### 5. 빌드 이벤트 후킹
+특정 태스크 실행 전/후의 작업을 정의할 수 있습니다:
+
+```scala
+compile := compile
+  .dependsOn(myPreCompileTask)
+  .value
+```
+
+#### 6. 자주 쓰는 설정을 자동화 (AutoPlugin)
+자주 쓰는 설정들을 plugin처럼 추출할 수 있습니다:
+
+```scala
+// project/MyPlugin.scala
+object MyPlugin extends AutoPlugin {
+  override def trigger = allRequirements
+  override def projectSettings = Seq(
+    scalacOptions += "-deprecation"
+  )
+}
+```
+
+---
+
